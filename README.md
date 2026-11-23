@@ -1,77 +1,42 @@
-# 🍽️ Tips Dashboard — Streamlit + Plotly
+# 🎬 MovieLens 1M Dashboard — Hito 1 (v2.1.0-beta)
 
-Dashboard didáctico construido con **Streamlit** y **Plotly** sobre el dataset clásico `tips` (propinas en un restaurante). Es una plantilla para aprender a convertir gráficos de un notebook en una app interactiva y publicarla en la web.
+Taller de Visualización de la Información · UDD 2026-2
+Vicente Sánchez · Matilda Rodríguez
 
-**App en vivo:** https://tips-dashboard-danilo.streamlit.app
+Dashboard en **Streamlit + Plotly** sobre MovieLens 1M (1.000.209 calificaciones de 6.040 usuarios a 3.706 películas).
 
-## Qué incluye
+## Qué incluye (requisitos del Hito 1)
 
-- Filtros globales en el panel lateral (día, momento, tamaño del grupo)
-- 4 tarjetas de KPIs con comparación contra el promedio global
-- 5 gráficos interactivos: torta, barras por paneles, histograma, boxplot y dispersión con línea de tendencia
-- Tabla desplegable con los datos filtrados
+- **Filtros globales (4):** género de la película, sexo, rango de edad y año de estreno.
+- **KPIs (4):** calificaciones, rating promedio (con delta vs global), usuarios activos y películas calificadas.
+- **Gráficos Plotly (5):** distribución de ratings, promedio por género, promedio por año de estreno, segmentación edad × sexo y mapa de usuarios por región ZIP.
+- **Primer mapa / segmentación:** mapa coroplético de EE.UU. por primer dígito del ZIP y barras por segmento de edad y sexo.
+- Top 10 películas con mínimo de calificaciones ajustable y tabla de datos filtrados.
+- Cada gráfico trae una interpretación que se recalcula con los filtros.
 
-## Estructura del repositorio
-
-```
-tips-dashboard/
-├── tips_app.py                    # La app de Streamlit
-├── requirements.txt               # Librerías que instala Streamlit Cloud
-├── tips_dashboard_tutorial.ipynb  # Tutorial paso a paso (notebook)
-├── GUIA_ESTUDIANTES.pdf           # Guía para replicar y publicar la app
-├── .streamlit/
-│   └── config.toml                # Tema visual de la app
-├── .gitignore
-└── README.md
-```
-
-## 1. Ejecutar en tu computadora
+## Ejecutar
 
 ```bash
 pip install -r requirements.txt
 streamlit run tips_app.py
 ```
 
-Se abre en `http://localhost:8501`.
+Los archivos `ratings.dat`, `users.dat` y `movies.dat` van en la carpeta `data/`. Si no están en el repositorio, la app pide subirlos desde el panel lateral.
 
-## 2. Subir a GitHub
+Archivo principal en Streamlit Community Cloud: `tips_app.py`.
 
-**Desde la web:** crea un repositorio nuevo en [github.com](https://github.com) (público), elige **uploading an existing file**, arrastra todos los archivos de esta carpeta (o usa **Add file → Upload files**) y confirma con **Commit changes**.
-
-> La carpeta `.streamlit` y el archivo `.gitignore` empiezan con punto y en Mac están ocultos en Finder: muéstralos con `Cmd + Shift + .` antes de arrastrar.
-
-**Con git:**
+## Versión
 
 ```bash
-git init
-git add .
-git commit -m "Dashboard de propinas con Streamlit"
-git branch -M main
-git remote add origin https://github.com/TU_USUARIO/tips-dashboard.git
-git push -u origin main
+git tag -a v2.1.0-beta -m "Hito 1: filtros, KPIs, gráficos y primer mapa"
+git push origin v2.1.0-beta
 ```
 
-## 3. Publicar en Streamlit Community Cloud
+## Plan hacia el Hito 2 (v3.0.0)
 
-1. Entra a [share.streamlit.io](https://share.streamlit.io), haz clic en **Continue to sign-in** y luego en **Continue with GitHub**. Autoriza el acceso a tus repositorios.
-2. En tu espacio de trabajo haz clic en **Create app** (arriba a la derecha) y, en **Deploy a public app from GitHub**, elige **Deploy now**.
-3. Completa el formulario:
-   - **Repository:** `TU_USUARIO/tips-dashboard`
-   - **Branch:** `main`
-   - **Main file path:** `tips_app.py`
-   - **App URL (opcional):** un nombre a tu gusto
-4. Confirma con **Deploy** y espera unos minutos.
-
-Cada cambio que subas a GitHub actualiza la app publicada automáticamente.
-
-## Problemas frecuentes
-
-| Síntoma | Causa habitual |
+| Tarea | Responsable |
 |---|---|
-| `ModuleNotFoundError` en la app publicada | Falta la librería en `requirements.txt` |
-| "Main module does not exist" | El *Main file path* no coincide con `tips_app.py` |
-| La app "se durmió" | Las apps sin visitas se suspenden; se reactivan con el botón que aparece al abrirlas |
-
-## Ejercicios
-
-Al final de `tips_app.py` y del notebook hay ejercicios para extender la app: un filtro nuevo, un KPI adicional, cambiar un tipo de gráfico y conectar tu propio CSV.
+| Mapa por estado más preciso (ZIP de 3 dígitos) | Vicente |
+| Página de recomendaciones / similitud entre películas | Matilda |
+| Pestañas por análisis (st.tabs) y estilo final | Vicente |
+| Interpretaciones finales y presentación | Matilda |

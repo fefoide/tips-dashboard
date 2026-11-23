@@ -1,273 +1,271 @@
-# tips_app.py
+# app.py
 # ============================================================
-#  DASHBOARD DIDÁCTICO — Dataset "tips" (propinas en un restaurante)
-#  Ejecutar en local:  streamlit run tips_app.py
-#  Publicar:           subir este repo a GitHub y desplegarlo en
-#                      Streamlit Community Cloud (ver README.md)
+#  DASHBOARD MOVIELENS 1M — Hito 1 (v2.1.0-beta)
+#  Taller de Visualización de la Información · UDD 2026-2
+#  Vicente Sánchez · Matilda Rodríguez
 #
-#  Este script es una PLANTILLA para aprender Streamlit + Plotly.
-#  Cada sección explica QUÉ hace y POR QUÉ, para que puedas
-#  reutilizar el mismo patrón con tus propios datos.
+#  Ejecutar:  streamlit run app.py
 #
-#  Idea clave de Streamlit: el script se ejecuta de ARRIBA A ABAJO
-#  cada vez que el usuario interactúa con un widget (un slider, un
-#  selectbox, etc.). Por eso vas a ver que todo el "flujo" del
-#  dashboard es simplemente código Python normal, leído de arriba
-#  hacia abajo.
+#  Datos: carpeta data/ con los archivos originales de MovieLens 1M
+#  (ratings.dat, users.dat, movies.dat; separador "::").
 # ============================================================
+
+import io
+import os
+import re
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 # ── 1. CONFIGURACIÓN DE LA PÁGINA ────────────────────────────
-# st.set_page_config() debe ser la PRIMERA instrucción de Streamlit
-# en el script. Define el título de la pestaña del navegador, el
-# ícono y si el contenido usa todo el ancho ("wide") o queda
-# centrado ("centered").
 st.set_page_config(
-    page_title="Tips Dashboard",
-    page_icon="🍽️",
+    page_title="MovieLens Dashboard",
+    page_icon="🎬",
     layout="wide",
 )
 
-# ── 2. PALETA DE COLORES Y ESTILO COMPARTIDO ─────────────────
-# Definir los colores como constantes evita repetir códigos hex
-# y asegura que la misma categoría (ej. "Sí"/"No") tenga siempre
-# el mismo color en TODOS los gráficos del dashboard.
-COLOR_SI_NO = {"Sí": "#1D9E75", "No": "#D85A30"}
-COLOR_SEXO  = {"Mujer": "#7F77DD", "Hombre": "#378ADD"}
-COLOR_DIA   = {"Jue": "#378ADD", "Vie": "#7F77DD", "Sáb": "#BA7517", "Dom": "#D85A30"}
-ORDEN_DIAS  = ["Jue", "Vie", "Sáb", "Dom"]
+# ── 2. DICCIONARIOS Y ESTILO COMPARTIDO ──────────────────────
+# Códigos de edad y ocupación según la documentación de MovieLens 1M.
+EDADES = {1: "Menor de 18", 18: "18-24", 25: "25-34", 35: "35-44",
+          45: "45-49", 50: "50-55", 56: "56+"}
+ORDEN_EDADES = list(EDADES.values())
 
-# Diccionario reutilizable con el estilo visual de Plotly: fondo,
-# tipografía, márgenes y posición de la leyenda. Se "desempaqueta"
-# con ** en cada fig.update_layout(**LAYOUT, ...).
+OCUPACIONES = {
+    0: "Otra", 1: "Académico/educador", 2: "Artista", 3: "Administrativo",
+    4: "Estudiante universitario", 5: "Atención al cliente", 6: "Salud",
+    7: "Ejecutivo/gerente", 8: "Agricultor", 9: "Dueño(a) de casa",
+    10: "Estudiante escolar", 11: "Abogado", 12: "Programador",
+    13: "Jubilado", 14: "Ventas/marketing", 15: "Científico",
+    16: "Independiente", 17: "Técnico/ingeniero", 18: "Oficios",
+    19: "Desempleado", 20: "Escritor",
+}
+
+SEXOS = {"F": "Mujer", "M": "Hombre"}
+COLOR_SEXO = {"Mujer": "#7F77DD", "Hombre": "#378ADD"}
+
+# Primer dígito del código ZIP de EE.UU. → estados que cubre.
+# Sirve para ubicar a los usuarios en un mapa sin geocodificar.
+REGIONES_ZIP = {
+    "0": ["CT", "MA", "ME", "NH", "NJ", "RI", "VT"],
+    "1": ["DE", "NY", "PA"],
+    "2": ["DC", "MD", "NC", "SC", "VA", "WV"],
+    "3": ["AL", "FL", "GA", "MS", "TN"],
+    "4": ["IN", "KY", "MI", "OH"],
+    "5": ["IA", "MN", "MT", "ND", "SD", "WI"],
+    "6": ["IL", "KS", "MO", "NE"],
+    "7": ["AR", "LA", "OK", "TX"],
+    "8": ["AZ", "CO", "ID", "NM", "NV", "UT", "WY"],
+    "9": ["AK", "CA", "HI", "OR", "WA"],
+}
+
 LAYOUT = dict(
     plot_bgcolor="white", paper_bgcolor="white",
     font=dict(family="Inter,Arial,sans-serif", size=12),
-    margin=dict(t=40, b=40, l=50, r=20),
-    legend=dict(orientation="h", y=-0.2),
+    margin=dict(t=50, b=40, l=50, r=20),
 )
+
 
 # ── 3. CARGAR Y PREPARAR LOS DATOS ───────────────────────────
-# @st.cache_data le dice a Streamlit: "ejecuta esta función UNA
-# SOLA VEZ y guarda (cachea) el resultado en memoria". Como el
-# script se vuelve a ejecutar completo cada vez que se mueve un
-# filtro, sin esta línea recargaríamos y transformaríamos el
-# dataset una y otra vez — innecesario y lento.
+# Los archivos se leen desde data/ si están en el repositorio. Si no
+# están, la app pide subirlos (como en la app de regresión de clase).
+# @st.cache_data: el millón de calificaciones se procesa una sola vez.
+ARCHIVOS = ["ratings.dat", "users.dat", "movies.dat"]
+
+
+def leer_dat(fuente, columnas, **extra):
+    return pd.read_csv(fuente, sep="::", engine="python", names=columnas,
+                       encoding="latin-1", **extra)
+
+
 @st.cache_data
-def cargar_datos():
-    # px.data.tips() trae el dataset clásico de propinas ya
-    # incluido en Plotly: no requiere descargar ni subir archivos.
-    df = px.data.tips()
+def cargar_datos(ratings_b, users_b, movies_b):
+    ratings = leer_dat(io.BytesIO(ratings_b), ["UserID", "MovieID", "Rating", "Timestamp"])
+    users = leer_dat(io.BytesIO(users_b), ["UserID", "Gender", "Age", "Occupation", "Zip"],
+                     dtype={"Zip": str})
+    movies = leer_dat(io.BytesIO(movies_b), ["MovieID", "Title", "Genres"])
 
-    # Traducimos/renombramos valores para que el dashboard se vea
-    # en español. Esto es opcional, pero ayuda a la legibilidad
-    # y es un buen ejemplo de "limpieza de datos" con .map().
-    df["Fumador"] = df["smoker"].map({"Yes": "Sí", "No": "No"})
-    df["Sexo"]    = df["sex"].map({"Female": "Mujer", "Male": "Hombre"})
-    df["Día"]     = df["day"].map({"Thur": "Jue", "Fri": "Vie", "Sat": "Sáb", "Sun": "Dom"})
-    df["Momento"] = df["time"].map({"Lunch": "Almuerzo", "Dinner": "Cena"})
+    # Limpieza: año de estreno desde el título y nombres en español
+    movies["Año"] = movies["Title"].str.extract(r"\((\d{4})\)\s*$").astype(float)
+    users["Sexo"] = users["Gender"].map(SEXOS)
+    users["Edad"] = users["Age"].map(EDADES)
+    users["Ocupación"] = users["Occupation"].map(OCUPACIONES)
+    users["Región ZIP"] = users["Zip"].str[0]
 
-    # Columna calculada: porcentaje de propina sobre la cuenta.
-    # Esto es pandas normal — nada especial de Streamlit aquí.
-    df["% propina"] = (df["tip"] / df["total_bill"] * 100).round(1)
+    df = ratings.merge(users, on="UserID").merge(movies, on="MovieID")
+    df["Fecha"] = pd.to_datetime(df["Timestamp"], unit="s")
+    return df, movies
 
-    return df
 
-df = cargar_datos()
+if all(os.path.exists(os.path.join("data", a)) for a in ARCHIVOS):
+    contenidos = [open(os.path.join("data", a), "rb").read() for a in ARCHIVOS]
+else:
+    st.sidebar.header("Datos MovieLens 1M")
+    subidos = [st.sidebar.file_uploader(f"Sube {a}", type=["dat"], key=a) for a in ARCHIVOS]
+    if not all(subidos):
+        st.title("¿Qué y cómo califican los usuarios de MovieLens?")
+        st.info("Sube los 3 archivos de MovieLens 1M (ratings.dat, users.dat y "
+                "movies.dat) en el panel lateral para comenzar.")
+        st.stop()
+    contenidos = [f.getvalue() for f in subidos]
+
+df, movies = cargar_datos(*contenidos)
+GENEROS = sorted({g for gs in movies["Genres"] for g in gs.split("|")})
 
 # ── 4. SIDEBAR — FILTROS GLOBALES ────────────────────────────
-# Todo lo que esté dentro de "with st.sidebar:" aparece en el
-# panel lateral izquierdo. Cada widget (multiselect, radio, slider)
-# DEVUELVE el valor elegido por el usuario, que guardamos en una
-# variable normal de Python para usarla más abajo.
 with st.sidebar:
-    st.title("🍽️ Tips")
+    st.title("🎬 MovieLens 1M")
     st.caption("Filtros globales — afectan todos los gráficos")
 
-    # multiselect → el usuario puede elegir VARIAS opciones a la vez
-    dias = st.multiselect(
-        "Día",
-        options=ORDEN_DIAS,
-        default=ORDEN_DIAS,
-    )
+    generos = st.multiselect("Género de la película", options=GENEROS,
+                             default=[], placeholder="Todos los géneros")
 
-    # radio → el usuario elige UNA sola opción
-    momento = st.radio(
-        "Momento",
-        options=["Todos", "Almuerzo", "Cena"],
-    )
+    sexo = st.radio("Sexo del usuario", options=["Todos", "Mujer", "Hombre"])
 
-    # slider de rango → devuelve una tupla (mínimo, máximo)
-    tam_min, tam_max = st.slider(
-        "Tamaño del grupo (personas)",
-        min_value=int(df["size"].min()),
-        max_value=int(df["size"].max()),
-        value=(int(df["size"].min()), int(df["size"].max())),
-    )
+    edades = st.multiselect("Rango de edad", options=ORDEN_EDADES,
+                            default=ORDEN_EDADES)
+
+    año_min, año_max = int(df["Año"].min()), int(df["Año"].max())
+    años = st.slider("Año de estreno", min_value=año_min, max_value=año_max,
+                     value=(año_min, año_max))
 
     st.divider()
-    st.caption(f"Dataset completo: {len(df)} cuentas")
+    st.caption(f"Dataset completo: {len(df):,} calificaciones")
 
 # ── 5. APLICAR LOS FILTROS (pandas puro) ─────────────────────
-# Construimos una "máscara" booleana (una serie de True/False)
-# combinando condiciones con & (Y lógico). Luego usamos esa
-# máscara para quedarnos solo con las filas que la cumplen.
-# Esta parte es 100% pandas — no tiene nada de Streamlit.
-mask = (
-    df["Día"].isin(dias) &
-    df["size"].between(tam_min, tam_max)
-)
-if momento != "Todos":
-    mask &= df["Momento"] == momento
+mask = df["Edad"].isin(edades) & df["Año"].between(*años)
+if sexo != "Todos":
+    mask &= df["Sexo"] == sexo
+if generos:
+    patron = "|".join(re.escape(g) for g in generos)
+    mask &= df["Genres"].str.contains(patron, regex=True)
 
-dff = df[mask]  # dff = "dataframe filtrado"
+dff = df[mask]
 
 # ── 6. ENCABEZADO ─────────────────────────────────────────────
-st.title("Propinas en el restaurante")
-st.caption(f"Mostrando {len(dff):,} de {len(df):,} cuentas con los filtros aplicados")
+st.title("¿Qué y cómo califican los usuarios de MovieLens?")
+st.caption(f"Mostrando {len(dff):,} de {len(df):,} calificaciones con los filtros aplicados")
 
-# Si el usuario filtra de forma que no queda ninguna fila, avisamos
-# y detenemos la ejecución con st.stop(). Así evitamos errores al
-# intentar graficar (o calcular promedios de) un DataFrame vacío.
 if dff.empty:
     st.warning("No hay datos para los filtros seleccionados. Ajusta el panel lateral.")
     st.stop()
 
-# ── 7. KPIs (TARJETAS DE MÉTRICAS) ───────────────────────────
-# st.columns(n) crea n columnas de igual ancho una al lado de la
-# otra. st.metric() muestra un número grande con una etiqueta
-# arriba y, opcionalmente, una variación ("delta") debajo.
+# ── 7. KPIs ───────────────────────────────────────────────────
 k1, k2, k3, k4 = st.columns(4)
+prom = dff["Rating"].mean()
+prom_global = df["Rating"].mean()
 
-cuentas       = len(dff)
-propina_media = dff["tip"].mean()
-pct_media     = dff["% propina"].mean()
-pct_global    = df["% propina"].mean()  # referencia SIN filtros
-
-k1.metric("Cuentas", f"{cuentas:,}")
-k2.metric("Propina promedio", f"${propina_media:,.2f}")
-k3.metric("Cuenta promedio", f"${dff['total_bill'].mean():,.2f}")
-k4.metric("% propina promedio", f"{pct_media:.1f}%",
-          delta=f"{pct_media - pct_global:+.1f} pts vs global")
+k1.metric("Calificaciones", f"{len(dff):,}")
+k2.metric("Rating promedio", f"{prom:.2f} / 5",
+          delta=f"{prom - prom_global:+.2f} vs global")
+k3.metric("Usuarios activos", f"{dff['UserID'].nunique():,}")
+k4.metric("Películas calificadas", f"{dff['MovieID'].nunique():,}")
 
 st.divider()
 
-# ── 8. FILA 1 — DOS GRÁFICOS LADO A LADO ─────────────────────
-# st.columns([1, 2]) crea dos columnas donde la segunda es el
-# doble de ancha que la primera. Cada "with col:" indica qué va
-# dentro de esa columna.
-col1, col2 = st.columns([1, 2])
+# ── 8. FILA 1 — DISTRIBUCIÓN Y GÉNEROS ───────────────────────
+col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("¿Quiénes son fumadores?")
-    # value_counts() cuenta cuántas veces aparece cada valor de
-    # la columna — pandas puro, igual que en un notebook normal.
-    conteo = dff["Fumador"].value_counts().reset_index()
-    conteo.columns = ["Fumador", "Cuentas"]
-
-    fig = px.pie(
-        conteo, names="Fumador", values="Cuentas", hole=0.55,
-        color="Fumador", color_discrete_map=COLOR_SI_NO,
-    )
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(**LAYOUT, showlegend=False)
-    # st.plotly_chart() es el "puente" entre una figura de Plotly
-    # y la página de Streamlit. width="stretch" hace que
-    # el gráfico ocupe todo el ancho de su columna.
+    st.subheader("Distribución de las calificaciones")
+    conteo = dff["Rating"].value_counts().sort_index().reset_index()
+    conteo.columns = ["Rating", "Cantidad"]
+    fig = px.bar(conteo, x="Rating", y="Cantidad", color="Rating",
+                 color_continuous_scale="Blues",
+                 title="Cantidad de calificaciones por estrella")
+    fig.update_layout(**LAYOUT, coloraxis_showscale=False)
     st.plotly_chart(fig, width="stretch")
+    pct = conteo.set_index("Rating")["Cantidad"] / conteo["Cantidad"].sum() * 100
+    st.caption(f"Interpretación: las notas 3 y 4 suman {pct.get(3, 0) + pct.get(4, 0):.0f}% "
+               f"de las calificaciones, mientras que 1 estrella es solo {pct.get(1, 0):.0f}%.")
 
 with col2:
-    st.subheader("Cuentas por día y momento")
-    # groupby + size() cuenta filas por combinación de columnas
-    # (otra operación 100% pandas).
-    g = (dff.groupby(["Día", "Momento", "Fumador"])
-            .size().reset_index(name="Cuentas"))
-
-    fig = px.bar(
-        g, x="Día", y="Cuentas", color="Fumador",
-        facet_col="Momento", barmode="stack",
-        color_discrete_map=COLOR_SI_NO,
-        category_orders={"Día": ORDEN_DIAS},
-    )
-    fig.update_layout(**LAYOUT)
-    # Los "facets" de Plotly etiquetan cada panel como "Momento=Cena".
-    # Esta línea se queda solo con la palabra después del "=".
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    st.subheader("Rating promedio por género")
+    g = dff[["Genres", "Rating"]].assign(Género=dff["Genres"].str.split("|")).explode("Género")
+    if generos:
+        g = g[g["Género"].isin(generos)]
+    por_genero = (g.groupby("Género")["Rating"].agg(["mean", "count"])
+                    .reset_index().rename(columns={"mean": "Promedio", "count": "Calificaciones"})
+                    .sort_values("Promedio"))
+    fig = px.bar(por_genero, x="Promedio", y="Género", orientation="h",
+                 color="Calificaciones", color_continuous_scale="Viridis",
+                 hover_data={"Calificaciones": ":,"},
+                 title="Promedio de estrellas (color = volumen)")
+    fig.update_layout(**LAYOUT, xaxis_range=[1, 5])
     st.plotly_chart(fig, width="stretch")
+    mejor = por_genero.iloc[-1]
+    masivo = por_genero.sort_values("Calificaciones").iloc[-1]
+    st.caption(f"Interpretación: {mejor['Género']} tiene el mejor promedio "
+               f"({mejor['Promedio']:.2f}), mientras que {masivo['Género']} es el género "
+               f"con más calificaciones ({int(masivo['Calificaciones']):,}).")
 
-# ── 9. FILA 2 — DOS GRÁFICOS MÁS ─────────────────────────────
+# ── 9. FILA 2 — EVOLUCIÓN Y SEGMENTACIÓN ─────────────────────
 col3, col4 = st.columns(2)
 
 with col3:
-    st.subheader("Distribución del % de propina")
-    fig = px.histogram(
-        dff, x="% propina", color="Sexo", nbins=20,
-        opacity=0.75, barmode="overlay",
-        color_discrete_map=COLOR_SEXO,
-    )
+    st.subheader("Rating promedio según año de estreno")
+    por_año = (dff.groupby("Año")["Rating"].agg(["mean", "count"]).reset_index()
+                 .rename(columns={"mean": "Promedio", "count": "Calificaciones"}))
+    por_año = por_año[por_año["Calificaciones"] >= 20]  # evita años con muy pocos datos
+    fig = px.line(por_año, x="Año", y="Promedio", markers=True,
+                  hover_data={"Calificaciones": ":,"},
+                  title="Promedio por año (años con 20+ calificaciones)")
     fig.update_layout(**LAYOUT)
     st.plotly_chart(fig, width="stretch")
+    if len(por_año) > 2:
+        tendencia = por_año["Año"].corr(por_año["Promedio"])
+        texto = ("las películas más antiguas obtienen mejores notas (sesgo de clásicos)"
+                 if tendencia < 0 else "las películas más recientes obtienen mejores notas")
+        st.caption(f"Interpretación: {texto}; correlación año-promedio = {tendencia:.2f}.")
 
 with col4:
-    st.subheader("Cuenta total por día")
-    fig = px.box(
-        dff, x="Día", y="total_bill", color="Día",
-        color_discrete_map=COLOR_DIA,
-        category_orders={"Día": ORDEN_DIAS},
-        labels={"total_bill": "Cuenta total ($)"},
-    )
-    fig.update_layout(**LAYOUT, showlegend=False)
+    st.subheader("Segmentación de usuarios: edad y sexo")
+    seg = (dff.groupby(["Edad", "Sexo"])["Rating"].mean().reset_index()
+              .rename(columns={"Rating": "Promedio"}))
+    fig = px.bar(seg, x="Edad", y="Promedio", color="Sexo", barmode="group",
+                 color_discrete_map=COLOR_SEXO,
+                 category_orders={"Edad": ORDEN_EDADES},
+                 title="Rating promedio por segmento")
+    fig.update_layout(**LAYOUT, yaxis_range=[1, 5], legend=dict(orientation="h", y=-0.2))
     st.plotly_chart(fig, width="stretch")
+    por_edad = dff.groupby("Edad")["Rating"].mean().reindex(ORDEN_EDADES).dropna()
+    if len(por_edad) > 1:
+        st.caption(f"Interpretación: el segmento {por_edad.index[0]} promedia "
+                   f"{por_edad.iloc[0]:.2f} y el segmento {por_edad.index[-1]} promedia "
+                   f"{por_edad.iloc[-1]:.2f}; así se compara cómo califica cada grupo.")
 
-# ── 10. FILA 3 — GRÁFICO INTERACTIVO CON SELECTBOX LOCAL ─────
-# Este selectbox NO está en el sidebar: solo afecta a este gráfico.
-# Es un buen ejemplo de la diferencia entre un "filtro global"
-# (sidebar, afecta todo) y un "control local" (afecta solo una
-# sección de la página).
-st.subheader("Relación entre cuenta total y propina")
+# ── 10. FILA 3 — MAPA DE USUARIOS ─────────────────────────────
+st.subheader("¿Dónde están los usuarios? (primer mapa)")
+usuarios = dff.drop_duplicates("UserID")
+por_region = usuarios["Región ZIP"].value_counts().reset_index()
+por_region.columns = ["Región ZIP", "Usuarios"]
+filas = [{"Estado": e, "Región ZIP": r, "Usuarios": n}
+         for r, n in zip(por_region["Región ZIP"], por_region["Usuarios"])
+         for e in REGIONES_ZIP.get(r, [])]
+mapa = pd.DataFrame(filas)
+if not mapa.empty:
+    fig = px.choropleth(mapa, locations="Estado", locationmode="USA-states",
+                        color="Usuarios", scope="usa",
+                        hover_data={"Región ZIP": True, "Usuarios": ":,"},
+                        color_continuous_scale="Blues",
+                        title="Usuarios por región del código ZIP")
+    fig.update_layout(**LAYOUT)
+    st.plotly_chart(fig, width="stretch")
+    top_r = por_region.iloc[0]
+    st.caption(f"Interpretación: cada región agrupa los estados que comparten el primer "
+               f"dígito del ZIP. La región {top_r['Región ZIP']} "
+               f"({', '.join(REGIONES_ZIP.get(top_r['Región ZIP'], []))}) concentra más "
+               f"usuarios: {int(top_r['Usuarios']):,}.")
 
-agrupar_por = st.selectbox(
-    "Colorear por",
-    ["Sexo", "Fumador", "Momento", "Día"],
-    key="sel_color",  # 'key' único: obligatorio si hay varios selectbox
-)
+# ── 11. TOP PELÍCULAS ─────────────────────────────────────────
+st.subheader("Top 10 películas mejor calificadas")
+minimo = st.slider("Mínimo de calificaciones por película", 10, 500, 100, step=10,
+                   key="min_ratings")
+top = (dff.groupby("Title")["Rating"].agg(["mean", "count"]).reset_index()
+          .rename(columns={"Title": "Película", "mean": "Promedio", "count": "Calificaciones"}))
+top = top[top["Calificaciones"] >= minimo].sort_values("Promedio", ascending=False).head(10)
+st.dataframe(top.round({"Promedio": 2}), width="stretch", hide_index=True)
 
-fig = px.scatter(
-    dff, x="total_bill", y="tip", color=agrupar_por,
-    trendline="ols",  # línea de tendencia (requiere el paquete statsmodels)
-    labels={"total_bill": "Cuenta total ($)", "tip": "Propina ($)"},
-)
-fig.update_layout(**LAYOUT)
-st.plotly_chart(fig, width="stretch")
-
-# ── 11. TABLA DE DATOS (DESPLEGABLE) ─────────────────────────
-# st.expander crea una sección colapsable: útil para no saturar
-# la pantalla con la tabla completa todo el tiempo.
-with st.expander("Ver datos filtrados"):
-    columnas = ["Día", "Momento", "size", "total_bill", "tip", "% propina", "Sexo", "Fumador"]
-    st.dataframe(
-        dff[columnas].rename(columns={"size": "Personas"}),
-        width="stretch",
-        hide_index=True,
-    )
-
-# ════════════════════════════════════════════════════════════
-# 🧪 EJERCICIOS PARA PRACTICAR
-# (Bórralos cuando termines — son solo ideas para extender la app)
-#
-#  1. Agrega un widget st.checkbox("Solo cuentas grandes (size >= 4)")
-#     y combínalo con la máscara de filtros (sección 5).
-#
-#  2. Agrega una quinta columna de KPI con la propina MÁXIMA
-#     (dff["tip"].max()).
-#
-#  3. Cambia el gráfico de la sección 9 (col4) de px.box a
-#     px.violin y compara cómo se ve la distribución.
-#
-#  4. Agrega un nuevo st.selectbox en la sección 10 para elegir
-#     también la variable del eje X (por ejemplo, "size" en vez
-#     de "total_bill").
-# ════════════════════════════════════════════════════════════
+with st.expander("Ver datos filtrados (primeras 1.000 filas)"):
+    cols = ["Title", "Genres", "Año", "Rating", "Sexo", "Edad", "Ocupación", "Fecha"]
+    st.dataframe(dff[cols].head(1000), width="stretch", hide_index=True)

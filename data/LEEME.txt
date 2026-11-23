@@ -1,0 +1,2 @@
+Copia aquí los 3 archivos originales de MovieLens 1M:
+ratings.dat, users.dat y movies.dat (los mismos del Certamen 2).
