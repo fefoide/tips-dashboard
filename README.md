@@ -4,7 +4,7 @@ Dashboard interactivo en **Streamlit + Plotly Express** sobre el dataset MovieLe
 (1.000.209 calificaciones de 6.040 usuarios a 3.706 películas), desarrollado para el
 examen del Taller de Visualización de la Información · UDD 2026-2.
 
-**App publicada:** [abrir el dashboard](URL_DE_LA_APP)
+**App publicada:** [abrir el dashboard](https://tips-dashboard-38v96gu3b8qx4zzyooiuzi.streamlit.app/)
 
 **Integrantes:** Vicente Sánchez · Matilda Rodríguez
 

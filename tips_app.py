@@ -374,8 +374,8 @@ with tab3:
                             labels={"Rating_promedio": "Rating promedio",
                                     "Usuarios": "Usuarios (n°)",
                                     "Calificaciones": "Calificaciones (n°)"},
-                            map_style="carto-darkmatter", zoom=2.6,
-                            center={"lat": 38, "lon": -96}, opacity=0.8,
+                            map_style="carto-darkmatter", zoom=3.2,
+                            center={"lat": 38.5, "lon": -96.5}, opacity=0.8,
                             title=f"{metrica} por estado de EE.UU.")
     fig.update_layout(height=480)
     st.plotly_chart(estilo(fig), width="stretch")
