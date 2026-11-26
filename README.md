@@ -12,8 +12,8 @@ examen del Taller de Visualización de la Información · UDD 2026-2.
 
 ## Pregunta que responde
 
-¿Qué películas y géneros califican mejor los usuarios, y qué perfiles de espectador existen
-según su edad, sexo y forma de calificar?
+Más allá del promedio, ¿qué películas y géneros valoran mejor los usuarios cuando consideramos
+cuántos votos tienen y cuánto desacuerdo generan? (misma pregunta del Certamen 2)
 
 ## Contenido
 
@@ -29,9 +29,10 @@ según su edad, sexo y forma de calificar?
   promedio por usuario, rating por año de estreno, calificaciones por mes y popularidad vs. calidad.
 - **Controles locales:** mínimo de calificaciones del Top 10, variable de color del mapa y
   selector de segmento.
-- **Segmentación:** K-Means (k = 4, variables escaladas con StandardScaler) sobre actividad,
-  rating promedio, año promedio de las películas y diversidad de géneros, con dispersión por
-  segmento, radar, tabla de perfiles y detalle por segmento.
+- **Segmentación de películas (igual que el Certamen 2):** K-Means con k = 3 (método del codo)
+  sobre promedio, votos y dispersión escalados, solo películas con 20 votos o más. Segmentos:
+  Alta exposición, Valoración favorable y Menor valoración, con dispersión por segmento, radar,
+  tabla de perfiles, selector de segmento y coordenadas paralelas.
 - **Hallazgos principales** escritos al final de la página y tabla de datos filtrados en un
   `st.expander`.
 
@@ -55,4 +56,4 @@ streamlit run tips_app.py
 - Diseño con temática de cine: tema oscuro, paleta dorado/rojo, tipografía de marquesina.
 - Se agregaron los gráficos que faltaban según la pauta: coordenadas paralelas, treemap,
   coropleta con GeoJSON, radar, dispersión, histograma, mapa de calor y serie mensual.
-- Segmentación de usuarios con K-Means, tabla de perfiles y selector de segmento.
+- Segmentación de películas del Certamen 2 llevada al dashboard: dispersión, radar, tabla de perfiles y selector.

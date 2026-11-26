@@ -25,8 +25,9 @@ CREMA = "#F2EDE4"
 GRIS = "#8E8A80"
 COLOR_SEXO = {"Mujer": DORADO, "Hombre": ROJO}
 ESCALA = ["#3A1210", ROJO, DORADO]                  # escala continua oscuro → dorado
-COLOR_SEGMENTO = {"Maratonistas": DORADO, "Cinéfilos clásicos": "#E67E22",
-                  "Críticos exigentes": ROJO, "Espectadores casuales": GRIS}
+COLOR_SEGMENTO = {"Alta exposición": DORADO, "Valoración favorable": "#E67E22",
+                  "Menor valoración": ROJO}
+ORDEN_SEGMENTOS = ["Alta exposición", "Valoración favorable", "Menor valoración"]
 
 px.defaults.template = "plotly_dark"
 px.defaults.color_discrete_sequence = [DORADO, ROJO, GRIS, "#E67E22"]
@@ -156,45 +157,41 @@ def cargar_geojson():
         return json.load(f)
 
 
-# ── 4. SEGMENTACIÓN DE USUARIOS (K-Means, código de clases) ───
+# ── 4. SEGMENTACIÓN DE PELÍCULAS (K-Means, igual que el Certamen 2) ──
 @st.cache_data
 def segmentar(df):
-    # Una fila por usuario con 4 variables de comportamiento
-    perfil = df.groupby("UserID").agg(
-        Calificaciones=("Rating", "size"),        # actividad
-        Rating_promedio=("Rating", "mean"),       # exigencia
-        Año_promedio=("Año", "mean"),             # ¿clásicos o estrenos?
-        Géneros_distintos=("Género", "nunique"),  # diversidad
-    )
-    variables = list(perfil.columns)
+    # Una fila por película: promedio, cantidad de votos y dispersión (desacuerdo)
+    peliculas = df.groupby(["MovieID", "Title", "Género", "Año"])["Rating"].agg(
+        promedio="mean", votos="count", dispersion="std").reset_index()
 
-    # Escalar: cada variable queda con media 0 y desviación 1
-    X = StandardScaler().fit_transform(perfil[variables])
-    modelo = KMeans(n_clusters=4, n_init=10, random_state=42).fit(X)
-    perfil["cluster"] = modelo.labels_
-    escaladas = pd.DataFrame(X, columns=variables, index=perfil.index)
-    escaladas["cluster"] = modelo.labels_
+    # Solo películas con 20 votos o más: bajo ese umbral el promedio no es confiable
+    peliculas = peliculas[peliculas["votos"] >= 20].copy()
+    variables = ["promedio", "votos", "dispersion"]
 
-    # Nombre descriptivo según el promedio de cada cluster
-    medias = perfil.groupby("cluster")[variables].mean()
-    nombres = {}
-    nombres[medias["Calificaciones"].idxmax()] = "Maratonistas"
-    resto = medias.drop(list(nombres))
-    nombres[resto["Rating_promedio"].idxmin()] = "Críticos exigentes"
-    resto = medias.drop(list(nombres))
-    nombres[resto["Año_promedio"].idxmin()] = "Cinéfilos clásicos"
-    resto = medias.drop(list(nombres))
-    nombres[resto.index[0]] = "Espectadores casuales"
+    # Escalar: (valor - media) / desviación estándar, así "votos" no domina las distancias
+    escaladas = (peliculas[variables] - peliculas[variables].mean()) / peliculas[variables].std()
 
-    perfil["Segmento"] = perfil["cluster"].map(nombres)
-    escaladas["Segmento"] = escaladas["cluster"].map(nombres)
-    return perfil.drop(columns="cluster"), escaladas.drop(columns="cluster"), variables
+    # k = 3 elegido con el método del codo en el Certamen 2
+    modelo = KMeans(n_clusters=3, random_state=2025)
+    peliculas["cluster"] = modelo.fit_predict(escaladas)
+
+    # Nombre descriptivo de cada cluster según su perfil
+    medias = peliculas.groupby("cluster")[variables].mean()
+    c_masivo = medias["votos"].idxmax()            # el de más votos
+    c_bajo = medias["promedio"].idxmin()           # el de menor promedio
+    c_medio = medias.drop([c_masivo, c_bajo]).index[0]
+    nombres = {c_masivo: "Alta exposición", c_medio: "Valoración favorable",
+               c_bajo: "Menor valoración"}
+    peliculas["Segmento"] = peliculas["cluster"].map(nombres)
+    escaladas["Segmento"] = peliculas["Segmento"]
+    return peliculas.drop(columns="cluster"), escaladas, variables
 
 
 df = cargar_datos()
 geojson = cargar_geojson()
-perfil, escaladas, VARIABLES = segmentar(df)
-df = df.merge(perfil[["Segmento"]], left_on="UserID", right_index=True)
+peliculas, escaladas, VARIABLES = segmentar(df)
+df = df.merge(peliculas[["MovieID", "Segmento"]], on="MovieID", how="left")
+df["Segmento"] = df["Segmento"].fillna("Sin segmento (< 20 votos)")
 
 # ── 5. SIDEBAR — FILTROS GLOBALES ────────────────────────────
 with st.sidebar:
@@ -240,8 +237,8 @@ st.markdown(f"""
 <div class="marquesina">
   <div class="cinta"></div>
   <h1>MovieLens 1M · Lo que califica el público</h1>
-  <p class="pregunta">Pregunta guía: ¿qué películas y géneros califican mejor los usuarios,
-  y qué perfiles de espectador existen según su edad, sexo y forma de calificar?</p>
+  <p class="pregunta">Pregunta guía: más allá del promedio, ¿qué películas y géneros valoran
+  mejor los usuarios cuando consideramos cuántos votos tienen y cuánto desacuerdo generan?</p>
   <p>Mostrando {miles(len(dff))} de {miles(len(df))} calificaciones con los filtros aplicados.</p>
 </div>
 """, unsafe_allow_html=True)
@@ -462,99 +459,118 @@ with tab4:
         st.caption("El 90% de las calificaciones se registró en 2000, con un peak en "
                    "noviembre (290 mil); después la actividad cae casi a cero.")
 
-# ── 9.5 SEGMENTOS (K-Means + radar + perfiles + multidimensional)
+# ── 9.5 SEGMENTOS DE PELÍCULAS (K-Means + radar + perfiles + multidimensional)
 with tab5:
-    st.caption("Segmentación con K-Means (k = 4) sobre 4 variables por usuario, escaladas con "
-               "StandardScaler. Elegimos k = 4 por el método del codo: desde k = 4 la inercia "
-               "baja cada vez menos, y los 4 grupos tienen una interpretación clara.")
+    st.caption("Segmentación de películas con K-Means (k = 3), igual que en el Certamen 2: "
+               "cada película se describe con su promedio, su cantidad de votos y su "
+               "dispersión (desviación estándar de sus estrellas), escaladas a media 0 y "
+               "desviación 1. Solo entran películas con 20 votos o más. Elegimos k = 3 por "
+               "el método del codo: la inercia baja 37% de k=1 a 2 y 27% de 2 a 3, y desde "
+               "k = 4 baja 18,5% o menos; además, k = 3 aísla a las películas masivas.")
 
-    # Solo los usuarios que quedan con los filtros globales
-    p = perfil[perfil.index.isin(dff["UserID"].unique())].reset_index()
-    p = p.merge(df.drop_duplicates("UserID")[["UserID", "Sexo", "Edad", "Ocupación"]],
-                on="UserID")
+    # Solo las películas que quedan con los filtros globales
+    p = peliculas[peliculas["MovieID"].isin(dff["MovieID"].unique())]
 
-    col1, col2 = st.columns(2)
+    if p.empty:
+        st.info("Ninguna película con 20 votos o más queda con estos filtros.")
+    else:
+        col1, col2 = st.columns(2)
 
-    with col1:
-        fig = px.scatter(p, x="Calificaciones", y="Rating_promedio", color="Segmento",
-                         color_discrete_map=COLOR_SEGMENTO, opacity=0.6,
-                         hover_name="UserID", hover_data={"Sexo": True, "Edad": True,
-                                                         "Año_promedio": ":.0f"},
-                         labels={"Calificaciones": "Calificaciones del usuario (n°)",
-                                 "Rating_promedio": "Rating promedio (1–5)",
-                                 "Año_promedio": "Año promedio de sus películas"},
-                         title="Usuarios por segmento")
+        with col1:
+            fig = px.scatter(p, x="votos", y="promedio", color="Segmento",
+                             color_discrete_map=COLOR_SEGMENTO,
+                             category_orders={"Segmento": ORDEN_SEGMENTOS}, opacity=0.65,
+                             hover_name="Title",
+                             hover_data={"dispersion": ":.2f", "Género": True, "Año": True,
+                                         "votos": ":,", "promedio": ":.2f"},
+                             labels={"votos": "Votos de la película (n°)",
+                                     "promedio": "Promedio (estrellas)",
+                                     "dispersion": "Dispersión (estrellas)"},
+                             title="Segmentos según popularidad y valoración")
+            st.plotly_chart(estilo(fig), width="stretch")
+
+        with col2:
+            # Radar: promedio de las variables ESCALADAS en cada segmento
+            radar = escaladas.loc[p.index].groupby("Segmento")[VARIABLES].mean().reset_index()
+            radar = radar.melt(id_vars="Segmento", var_name="Variable", value_name="Valor escalado")
+            radar["Variable"] = radar["Variable"].map({"promedio": "Promedio", "votos": "Votos",
+                                                       "dispersion": "Dispersión"})
+            fig = px.line_polar(radar, r="Valor escalado", theta="Variable", color="Segmento",
+                                line_close=True, color_discrete_map=COLOR_SEGMENTO,
+                                category_orders={"Segmento": ORDEN_SEGMENTOS},
+                                hover_name="Segmento", hover_data={"Valor escalado": ":.2f"},
+                                title="Perfil de cada segmento (valores escalados)")
+            fig.update_traces(fill="toself", opacity=0.55)
+            estilo(fig).update_layout(margin=dict(l=70, r=70))   # espacio para las etiquetas
+            st.plotly_chart(fig, width="stretch")
+
+        # Tabla de perfiles
+        st.subheader("Tabla de perfiles")
+        tabla = p.groupby("Segmento").agg(
+            Películas=("MovieID", "size"),
+            Promedio=("promedio", "mean"),
+            Votos_mediana=("votos", "median"),
+            Dispersión=("dispersion", "mean"),
+            Año_mediano=("Año", "median"),
+            Género_dominante=("Género", lambda g: g.mode()[0]),
+        ).reindex([s for s in ORDEN_SEGMENTOS if s in p["Segmento"].unique()]).reset_index()
+        tabla.insert(2, "% películas", tabla["Películas"] / tabla["Películas"].sum() * 100)
+        st.dataframe(tabla.round(2), width="stretch", hide_index=True)
+        st.caption("Alta exposición (11,5%): promedio 3,84 y una mediana de 1.074 votos. "
+                   "Valoración favorable (43,6%): casi la misma nota (3,67) con 206 votos "
+                   "medianos y la menor dispersión: consenso sin masividad. Menor valoración "
+                   "(44,9%): promedio 2,80 y la mayor dispersión; además de gustar menos, "
+                   "generan más desacuerdo.")
+
+        # Selector: detalle de un segmento (control local)
+        elegido = st.selectbox("Ver el detalle de un segmento",
+                               [s for s in ORDEN_SEGMENTOS if s in p["Segmento"].unique()])
+        detalle = p[p["Segmento"] == elegido]
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Películas del segmento", miles(len(detalle)))
+        d2.metric("Promedio del segmento", f"{detalle['promedio'].mean():.2f} ★",
+                  delta=f"{detalle['promedio'].mean() - p['promedio'].mean():+.2f} vs filtro")
+        d3.metric("Votos medianos", miles(int(detalle["votos"].median())))
+        top = detalle.nlargest(10, "votos").sort_values("votos")
+        fig = px.bar(top, x="votos", y="Title", orientation="h", hover_name="Title",
+                     hover_data={"promedio": ":.2f", "dispersion": ":.2f", "Title": False,
+                                 "votos": ":,"},
+                     labels={"votos": "Votos (n°)", "Title": "", "promedio": "Promedio",
+                             "dispersion": "Dispersión"},
+                     title=f"Las 10 películas más votadas de «{elegido}»")
+        fig.update_traces(marker_color=COLOR_SEGMENTO[elegido])
         st.plotly_chart(estilo(fig), width="stretch")
 
-    with col2:
-        # Radar: promedio escalado de cada variable por segmento
-        radar = escaladas[escaladas.index.isin(p["UserID"])].groupby("Segmento")[VARIABLES].mean()
-        radar = radar.reset_index().melt(id_vars="Segmento", var_name="Variable",
-                                         value_name="Valor escalado")
-        radar["Variable"] = radar["Variable"].str.replace("_", " ")
-        fig = px.line_polar(radar, r="Valor escalado", theta="Variable", color="Segmento",
-                            line_close=True, color_discrete_map=COLOR_SEGMENTO,
-                            hover_name="Segmento", hover_data={"Valor escalado": ":.2f"},
-                            title="Perfil de cada segmento (valores escalados)")
-        fig.update_traces(fill="toself", opacity=0.55)
+        # Multidimensional: coordenadas paralelas con color continuo
+        st.subheader("Coordenadas paralelas de las películas")
+        fig = px.parallel_coordinates(p, dimensions=["promedio", "votos", "dispersion", "Año"],
+                                      color="promedio", color_continuous_scale=ESCALA,
+                                      labels={"promedio": "Promedio (estrellas)",
+                                              "votos": "Votos (n°)",
+                                              "dispersion": "Dispersión (estrellas)",
+                                              "Año": "Año de estreno"},
+                                      title="Cada línea es una película con 20 votos o más")
         st.plotly_chart(estilo(fig), width="stretch")
-
-    # Tabla de perfiles
-    st.subheader("Tabla de perfiles")
-    tabla = p.groupby("Segmento").agg(
-        Usuarios=("UserID", "size"),
-        Calificaciones=("Calificaciones", "mean"),
-        Rating_promedio=("Rating_promedio", "mean"),
-        Año_promedio=("Año_promedio", "mean"),
-        Géneros_distintos=("Géneros_distintos", "mean"),
-        Edad_dominante=("Edad", lambda s: s.mode()[0]),
-        Sexo_dominante=("Sexo", lambda s: s.mode()[0]),
-    ).reset_index()
-    tabla.insert(2, "% usuarios", tabla["Usuarios"] / tabla["Usuarios"].sum() * 100)
-    st.dataframe(tabla.round(1), width="stretch", hide_index=True)
-    st.caption("Maratonistas (18%): ~490 calificaciones y 15 géneros distintos. Críticos "
-               "exigentes (26%): el promedio más bajo (3,30). Cinéfilos clásicos (23%): ven "
-               "películas de 1978 en promedio y las califican con 3,97. Espectadores casuales "
-               "(33%): ~70 calificaciones de películas recientes, con nota alta (3,95).")
-
-    # Selector: detalle de un segmento (control local)
-    elegido = st.selectbox("Ver el detalle de un segmento", sorted(p["Segmento"].unique()))
-    detalle = dff[dff["Segmento"] == elegido]
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Usuarios del segmento", miles(detalle["UserID"].nunique()))
-    d2.metric("Rating promedio", f"{detalle['Rating'].mean():.2f} ★",
-              delta=f"{detalle['Rating'].mean() - dff['Rating'].mean():+.2f} vs filtro")
-    d3.metric("Género favorito", detalle["Género"].value_counts().idxmax())
-
-    # Multidimensional: coordenadas paralelas con color continuo
-    st.subheader("Coordenadas paralelas de los usuarios")
-    muestra = p.sample(min(1500, len(p)), random_state=42)
-    fig = px.parallel_coordinates(muestra, dimensions=VARIABLES, color="Rating_promedio",
-                                  color_continuous_scale=ESCALA,
-                                  labels={"Calificaciones": "Calificaciones (n°)",
-                                          "Rating_promedio": "Rating prom. (1–5)",
-                                          "Año_promedio": "Año prom. película",
-                                          "Géneros_distintos": "Géneros distintos (n°)"},
-                                  title="Cada línea es un usuario (muestra de 1.500)")
-    st.plotly_chart(estilo(fig), width="stretch")
-    st.caption("Las líneas doradas (rating alto) vienen de usuarios con pocas calificaciones "
-               "o películas antiguas; las rojas (exigentes), de usuarios de películas recientes. "
-               "Más calificaciones va de la mano con más géneros distintos (correlación 0,69).")
+        st.caption("Las líneas doradas (promedio alto) pasan por dispersión baja y años de "
+                   "estreno más antiguos; las rojas (promedio bajo), por dispersión alta y "
+                   "estrenos recientes. La mala nota viene con desacuerdo.")
 
 # ── 10. HALLAZGOS PRINCIPALES ────────────────────────────────
 st.markdown("""
 <div class="hallazgos">
 <h3>Hallazgos principales</h3>
 <ul>
-<li><b>El público califica alto:</b> la nota más común es 4 y el promedio general es 3,58.</li>
-<li><b>Los géneros de nicho ganan en calidad y los masivos en cantidad:</b> Film-Noir y
-documentales lideran en promedio, mientras comedia, acción y drama suman el 74% de las
-calificaciones.</li>
-<li><b>Sesgo de clásicos:</b> las películas antiguas obtienen mejores notas que los estrenos.</li>
-<li><b>La edad sube la nota:</b> los mayores de 56 califican en promedio más alto que los
-menores de 18.</li>
-<li><b>Cuatro perfiles de espectador:</b> maratonistas, críticos exigentes, cinéfilos clásicos
-y espectadores casuales, con formas de calificar claramente distintas.</li>
+<li><b>Popularidad y valoración miden cosas distintas:</b> se relacionan solo de forma moderada
+(r = 0,38). Las películas masivas (alta exposición, 11,5%) son bien valoradas, pero las mejores
+notas también aparecen en películas con pocos votos.</li>
+<li><b>El promedio debe leerse junto con la cantidad de votos:</b> bajo 20 votos aparecen los
+promedios extremos; por eso los rankings y la segmentación usan solo películas con 20 votos o más.</li>
+<li><b>La mala nota viene con desacuerdo y tiene género:</b> el segmento de menor valoración tiene la
+mayor dispersión; terror es el género peor evaluado y Film-Noir y documentales los mejores.</li>
+<li><b>Sesgo de clásicos:</b> las películas antiguas reciben mejores notas porque solo se siguen
+viendo las buenas, no porque el cine antiguo sea mejor.</li>
+<li><b>Quién califica importa:</b> el público es mayoritariamente masculino y de 25 a 34 años,
+y la nota promedio sube con la edad.</li>
 </ul>
 </div>
 """, unsafe_allow_html=True)
