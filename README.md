@@ -1,42 +1,58 @@
-# 🎬 MovieLens 1M Dashboard — Hito 1 (v2.1.0-beta)
+# MovieLens 1M · Lo que califica el público (v3.0.0)
 
-Taller de Visualización de la Información · UDD 2026-2
-Vicente Sánchez · Matilda Rodríguez
+Dashboard interactivo en **Streamlit + Plotly Express** sobre el dataset MovieLens 1M
+(1.000.209 calificaciones de 6.040 usuarios a 3.706 películas), desarrollado para el
+examen del Taller de Visualización de la Información · UDD 2026-2.
 
-Dashboard en **Streamlit + Plotly** sobre MovieLens 1M (1.000.209 calificaciones de 6.040 usuarios a 3.706 películas).
+**App publicada:** [abrir el dashboard](URL_DE_LA_APP)
 
-## Qué incluye (requisitos del Hito 1)
+**Integrantes:** Vicente Sánchez · Matilda Rodríguez
 
-- **Filtros globales (4):** género de la película, sexo, rango de edad y año de estreno.
-- **KPIs (4):** calificaciones, rating promedio (con delta vs global), usuarios activos y películas calificadas.
-- **Gráficos Plotly (5):** distribución de ratings, promedio por género, promedio por año de estreno, segmentación edad × sexo y mapa de usuarios por región ZIP.
-- **Primer mapa / segmentación:** mapa coroplético de EE.UU. por primer dígito del ZIP y barras por segmento de edad y sexo.
-- Top 10 películas con mínimo de calificaciones ajustable y tabla de datos filtrados.
-- Cada gráfico trae una interpretación que se recalcula con los filtros.
+![Captura del dashboard](docs/captura.png)
 
-## Ejecutar
+## Pregunta que responde
+
+¿Qué películas y géneros califican mejor los usuarios, y qué perfiles de espectador existen
+según su edad, sexo y forma de calificar?
+
+## Contenido
+
+- **Filtros globales (4)** en el panel lateral: género, sexo, rango de edad y año de estreno.
+  Si dejan la tabla vacía, la app avisa y se detiene (`st.stop()`).
+- **KPIs (4)** con `st.metric`: calificaciones, rating promedio (con delta vs. el total),
+  usuarios y películas.
+- **Pestañas:** Calificaciones · Películas y géneros · Usuarios y mapa · En el tiempo · Segmentos.
+- **Gráficos obligatorios:** coordenadas paralelas con color continuo, treemap y sunburst
+  (path y values), coropleta por estado con GeoJSON (`data/us-states.geojson`) y radar
+  (`px.line_polar`, `line_close=True`). Todos los gráficos tienen tooltips personalizados.
+- **Análisis univariado, temporal y de relaciones:** distribución de estrellas, histograma del
+  promedio por usuario, rating por año de estreno, calificaciones por mes y popularidad vs. calidad.
+- **Controles locales:** mínimo de calificaciones del Top 10, variable de color del mapa y
+  selector de segmento.
+- **Segmentación:** K-Means (k = 4, variables escaladas con StandardScaler) sobre actividad,
+  rating promedio, año promedio de las películas y diversidad de géneros, con dispersión por
+  segmento, radar, tabla de perfiles y detalle por segmento.
+- **Hallazgos principales** escritos al final de la página y tabla de datos filtrados en un
+  `st.expander`.
+
+## Datos
+
+Archivos originales de MovieLens 1M en `data/` (`ratings.dat`, `users.dat`, `movies.dat`),
+los mismos del Certamen 2, cargados con `@st.cache_data`. El estado de EE.UU. se obtiene de
+los 3 primeros dígitos del código postal; 18 usuarios con códigos no válidos o de fuera de
+EE.UU. quedan fuera del mapa.
+
+## Ejecutar en local
 
 ```bash
 pip install -r requirements.txt
 streamlit run tips_app.py
 ```
 
-Los archivos `ratings.dat`, `users.dat` y `movies.dat` van en la carpeta `data/`. Si no están en el repositorio, la app pide subirlos desde el panel lateral.
+## Cambios desde la beta (v2.1.0-beta → v3.0.0)
 
-Archivo principal en Streamlit Community Cloud: `tips_app.py`.
-
-## Versión
-
-```bash
-git tag -a v2.1.0-beta -m "Hito 1: filtros, KPIs, gráficos y primer mapa"
-git push origin v2.1.0-beta
-```
-
-## Plan hacia el Hito 2 (v3.0.0)
-
-| Tarea | Responsable |
-|---|---|
-| Mapa por estado más preciso (ZIP de 3 dígitos) | Vicente |
-| Página de recomendaciones / similitud entre películas | Matilda |
-| Pestañas por análisis (st.tabs) y estilo final | Vicente |
-| Interpretaciones finales y presentación | Matilda |
+- Gráficos organizados en pestañas (retroalimentación del Hito 1).
+- Diseño con temática de cine: tema oscuro, paleta dorado/rojo, tipografía de marquesina.
+- Se agregaron los gráficos que faltaban según la pauta: coordenadas paralelas, treemap,
+  coropleta con GeoJSON, radar, dispersión, histograma, mapa de calor y serie mensual.
+- Segmentación de usuarios con K-Means, tabla de perfiles y selector de segmento.

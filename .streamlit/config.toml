@@ -1,5 +1,7 @@
-# Tema claro fijo: los gráficos usan fondo blanco, así la app se ve
-# igual aunque el navegador del espectador esté en modo oscuro.
+# Tema oscuro tipo sala de cine: fondo negro, detalles dorados.
 [theme]
-base = "light"
-primaryColor = "#1D9E75"
+base = "dark"
+primaryColor = "#E3B341"
+backgroundColor = "#0E0E12"
+secondaryBackgroundColor = "#1A1A22"
+textColor = "#F2EDE4"
